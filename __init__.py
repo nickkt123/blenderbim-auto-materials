@@ -3,6 +3,7 @@
 import bpy
 import mathutils
 import math
+# import blenderkit
 
 bl_info = {
     "name": "BlenderBIM Auto-materials",
@@ -35,23 +36,26 @@ class BIMAutoMaterials(bpy.types.Operator):
 def auto_assign_wall_material():
     """Assign a wall material from Blenderkit to walls."""
     bpy.context.scene.blenderkitUI.asset_type = 'MATERIAL'
-    bpy.context.scene.blenderkit_mat.search_keywords = "brick wall"
+    bpy.context.scene.blenderkit_mat.search_keywords = "red brick wall"
     tmp_mat = bpy.data.materials.new('tmp')
     for obj in bpy.context.selected_objects:
         if obj.type != 'MESH':
             continue
         if 'IfcWall' not in obj.name or 'Exterior' not in obj.name:
             continue
+        material_target_slot = len(obj.data.materials.keys())
+        obj.data.materials.append(tmp_mat)
+        # blenderkit.utils.automap(obj.name,
+        #                          target_slot=material_target_slot,
+        #                          tex_size=10.0)
         bpy.ops.mesh.uv_texture_add()
         bpy.ops.object.editmode_toggle()
         bpy.ops.mesh.select_all(action='DESELECT')
         bpy.ops.object.material_slot_select()
         bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
         bpy.ops.object.editmode_toggle()
-        material_target_slot = len(obj.data.materials.keys())
-        obj.data.materials.append(tmp_mat)
         bpy.ops.scene.blenderkit_download(asset_type='MATERIAL',
-                                          asset_index=1,
+                                          asset_index=0,
                                           target_object=obj.name,
                                           material_target_slot=material_target_slot,
                                           model_location=obj.location,
