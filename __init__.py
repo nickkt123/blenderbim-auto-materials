@@ -1,4 +1,6 @@
 import bpy
+import mathutils
+import math
 
 bl_info = {
     "name": "BlenderBIM Auto-materials",
@@ -33,7 +35,8 @@ def auto_assign_wall_material():
     TODO: only assign to outside faces
     """
     bpy.context.scene.blenderkitUI.asset_type = 'MATERIAL'
-    bpy.context.scene.blenderkit_mat.search_keywords = "wall"
+    bpy.context.scene.blenderkit_mat.search_keywords = "brick wall"
+    tmp_mat = bpy.data.materials.new('tmp')
     for obj in bpy.context.selected_objects:
         if obj.type != 'MESH':
             continue
@@ -45,7 +48,18 @@ def auto_assign_wall_material():
         bpy.ops.object.material_slot_select()
         bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
         bpy.ops.object.editmode_toggle()
-        bpy.ops.scene.blenderkit_download(asset_type='MATERIAL', asset_index=2, target_object=obj.name, material_target_slot=0, model_location=obj.location, model_rotation=(0, 0, 0))
+        material_target_slot = len(obj.data.materials.keys())
+        obj.data.materials.append(tmp_mat)
+        bpy.ops.scene.blenderkit_download(asset_type='MATERIAL',
+                                          asset_index=1,
+                                          target_object=obj.name,
+                                          material_target_slot=material_target_slot,
+                                          model_location=obj.location,
+                                          model_rotation=(0, 0, 0))
+
+        for face in obj.data.polygons:
+            if face_is_exterior(obj, face, offset=1):
+                face.material_index = material_target_slot
 
 
 def auto_assign_empty_material():
@@ -82,6 +96,39 @@ def convert_blenderBIM_materials():
             material.use_screen_refraction = True
             node.inputs['Roughness'].default_value = 0
             node.inputs['Transmission'].default_value = 1 - diffuse_color[3]
+
+
+def face_is_exterior(sel_obj, selected_face, offset=1):
+    """Determine if the selected face lies inside the building."""
+    sel_obj = bpy.context.active_object
+    offset = 1
+
+    face_local = selected_face.center.copy()
+    face_local.rotate(sel_obj.rotation_euler)
+
+    face_origin = sel_obj.location + face_local
+    face_normal = selected_face.normal.copy()
+    face_normal.rotate(sel_obj.rotation_euler)
+
+    for object in bpy.data.objects:
+        if object.type != 'MESH':
+            continue
+        if object.name == sel_obj.name:
+            continue
+
+        v1 = object.location
+        v3 = v1 + mathutils.Vector((0, 0, 1))
+
+        orig_v1 = mathutils.Vector(face_origin + (offset * face_normal) - v1)
+        eul_z = mathutils.Euler((0.0, 0.0, math.radians(90.0)), 'XYZ')
+        rotated_vec = orig_v1.copy()
+        rotated_vec.rotate(eul_z)
+        v2 = v1 + rotated_vec
+
+        res = mathutils.geometry.intersect_ray_tri(v1, v2, v3, face_normal, face_origin, False)
+        if res:
+            return False
+    return True
 
 
 def register():
