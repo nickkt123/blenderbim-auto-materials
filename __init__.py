@@ -1,3 +1,5 @@
+"""Convert BIM Materials to Cycles Materials."""
+
 import bpy
 import mathutils
 import math
@@ -22,18 +24,16 @@ class BIMAutoMaterials(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
 
     def execute(self, context):        # execute() is called when running the operator.
-
+        """Run the plugin."""
         convert_blenderBIM_materials()
         auto_assign_empty_material()
         auto_assign_wall_material()
+
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
 
 def auto_assign_wall_material():
-    """
-    Assign a wall material from Blenderkit to walls.
-    TODO: only assign to outside faces
-    """
+    """Assign a wall material from Blenderkit to walls."""
     bpy.context.scene.blenderkitUI.asset_type = 'MATERIAL'
     bpy.context.scene.blenderkit_mat.search_keywords = "brick wall"
     tmp_mat = bpy.data.materials.new('tmp')
@@ -132,10 +132,12 @@ def face_is_exterior(sel_obj, selected_face, offset=1):
 
 
 def register():
+    """Register the class in Blender."""
     bpy.utils.register_class(BIMAutoMaterials)
 
 
 def unregister():
+    """Unregister the class in Blender."""
     bpy.utils.unregister_class(BIMAutoMaterials)
 
 
