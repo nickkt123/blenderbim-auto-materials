@@ -35,6 +35,12 @@ class BIMAutoMaterials(bpy.types.Operator):
 
 def auto_assign_wall_material():
     """Assign a wall material from Blenderkit to walls."""
+    search_terms = {
+        'brick': 'brick wall',
+        'foundation': 'concrete',
+        'concrete': 'concrete',
+        'floor - wood': 'wood floor'
+    }
     if "bpy" in locals():
         import importlib
         utils = importlib.reload(utils)
@@ -43,12 +49,6 @@ def auto_assign_wall_material():
         from blenderkit import utils, search
 
     bpy.context.scene.blenderkitUI.asset_type = 'MATERIAL'
-    bpy.context.scene.blenderkit_mat.search_keywords = "red brick wall"
-    search.search(category='')
-
-    sr = bpy.context.scene.get('search results')
-    if sr is None:
-        bpy.context.scene['search results'] = []
 
     tmp_mat = bpy.data.materials.new('tmp')
     selected_objects = bpy.context.selected_objects
@@ -56,22 +56,29 @@ def auto_assign_wall_material():
     for obj in selected_objects:
         if obj.type != 'MESH':
             continue
-        if 'IfcWall' not in obj.name or 'Exterior' not in obj.name:
+        search_keywords = None
+        for material_key, search_term in search_terms.items():
+            if material_key in obj.name.lower():
+                search_keywords = search_term
+                break
+        if not search_keywords:
+            print('Material not mapped')
             continue
+
+        print(f'searching for {search_keywords}')
+        bpy.context.scene.blenderkit_mat.search_keywords = search_keywords
+        search.search(category='')
+
+        sr = bpy.context.scene.get('search results')
+        if sr is None:
+            bpy.context.scene['search results'] = []
+        print(f'found results: {sr}')
 
         bpy.context.view_layer.objects.active = obj
 
-        target_slot = len(obj.data.materials.keys())
         target_object = obj.name
         obj.data.materials.append(tmp_mat)
-
-        bpy.ops.mesh.uv_texture_remove()
-        # bpy.ops.mesh.uv_texture_add()
-        # bpy.ops.object.editmode_toggle()
-        # bpy.ops.mesh.select_all(action='DESELECT')
-        # bpy.ops.object.material_slot_select()
-        # bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
-        # bpy.ops.object.editmode_toggle()
+        target_slot = len(obj.data.materials.keys()) - 1
 
         asset_search_index = 0
         asset_data = sr[asset_search_index]
@@ -84,11 +91,13 @@ def auto_assign_wall_material():
                                           material_target_slot=target_slot,
                                           model_location=obj.location,
                                           model_rotation=(0, 0, 0))
-
-        for face in obj.data.polygons:
-            if face_is_exterior(obj, face, offset=1):
+        if 'Exterior' in obj.name:
+            for face in obj.data.polygons:
+                if face_is_exterior(obj, face, offset=1):
+                    face.material_index = target_slot
+        else:
+            for face in obj.data.polygons:
                 face.material_index = target_slot
-
 
 def auto_assign_empty_material():
     """Assign a bright pink material to unstyled objects."""
