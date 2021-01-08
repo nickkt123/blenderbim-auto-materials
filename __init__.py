@@ -20,7 +20,7 @@ bl_info = {
 class BIMAutoMaterials(bpy.types.Operator):
     """Convert BIM Materials to Cycles Materials."""      # Use this as a tooltip for menu items and buttons.
 
-    bl_idname = "object.move_x"        # Unique identifier for buttons and menu items to reference.
+    bl_idname = "bim.bim_auto_materials"        # Unique identifier for buttons and menu items to reference.
     bl_label = "BlenderBIM Auto-materials"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
 
@@ -28,12 +28,11 @@ class BIMAutoMaterials(bpy.types.Operator):
         """Run the plugin."""
         convert_blenderBIM_materials()
         auto_assign_empty_material()
-        auto_assign_wall_material()
-
+        auto_assign_materials_to_selected()
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
 
-def auto_assign_wall_material():
+def auto_assign_materials_to_selected():
     """Assign a wall material from Blenderkit to walls."""
     search_terms = {
         'brick': 'brick wall',
@@ -47,8 +46,10 @@ def auto_assign_wall_material():
         search = importlib.reload(search)
     else:
         from blenderkit import utils, search
-
-    bpy.context.scene.blenderkitUI.asset_type = 'MATERIAL'
+    scene = bpy.context.scene
+    ui_props = scene.blenderkitUI
+    props = scene.blenderkit_mat
+    ui_props.asset_type = 'MATERIAL'
 
     tmp_mat = bpy.data.materials.new('tmp')
     selected_objects = bpy.context.selected_objects
@@ -65,14 +66,12 @@ def auto_assign_wall_material():
             print('Material not mapped')
             continue
 
-        print(f'searching for {search_keywords}')
-        bpy.context.scene.blenderkit_mat.search_keywords = search_keywords
+        props.search_keywords = search_keywords
         search.search(category='')
-
-        sr = bpy.context.scene.get('search results')
-        if sr is None:
-            bpy.context.scene['search results'] = []
-        print(f'found results: {sr}')
+        print(f'searching for {props.search_keywords}')
+        
+        sr = scene.get('search results')
+        print(f'sr: {len(sr)}')
 
         bpy.context.view_layer.objects.active = obj
 
@@ -82,8 +81,15 @@ def auto_assign_wall_material():
 
         asset_search_index = 0
         asset_data = sr[asset_search_index]
+
+        bpy.ops.mesh.uv_texture_add()
+        bpy.ops.object.editmode_toggle()
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
+        bpy.ops.object.editmode_toggle()
         utils.automap(target_object, target_slot=target_slot,
                       tex_size=asset_data.get('texture_size_meters', 1.0))
+
         bpy.ops.scene.blenderkit_download(True,
                                           asset_type='MATERIAL',
                                           asset_index=0,
@@ -98,6 +104,7 @@ def auto_assign_wall_material():
         else:
             for face in obj.data.polygons:
                 face.material_index = target_slot
+
 
 def auto_assign_empty_material():
     """Assign a bright pink material to unstyled objects."""
