@@ -16,6 +16,13 @@ bl_info = {
     "warning": ""
 }
 
+search_terms = {
+    'brick': 'brick wall',
+    'foundation': 'concrete',
+    'concrete': 'concrete',
+    'floor - wood': 'wood floor'
+}
+
 
 class BIMAutoMaterials(bpy.types.Operator):
     """Convert BIM Materials to Cycles Materials."""      # Use this as a tooltip for menu items and buttons.
@@ -34,12 +41,6 @@ class BIMAutoMaterials(bpy.types.Operator):
 
 def auto_assign_materials_to_selected():
     """Assign a wall material from Blenderkit to walls."""
-    search_terms = {
-        'brick': 'brick wall',
-        'foundation': 'concrete',
-        'concrete': 'concrete',
-        'floor - wood': 'wood floor'
-    }
     if "bpy" in locals():
         import importlib
         utils = importlib.reload(utils)
@@ -69,7 +70,6 @@ def auto_assign_materials_to_selected():
         props.search_keywords = search_keywords
         search.search(category='')
         print(f'searching for {props.search_keywords}')
-        
         sr = scene.get('search results')
         print(f'sr: {len(sr)}')
 
