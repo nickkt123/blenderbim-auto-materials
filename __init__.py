@@ -55,7 +55,7 @@ def auto_assign_materials_to_selected():
     props = scene.blenderkit_mat
     ui_props.asset_type = 'MATERIAL'
 
-    tmp_mat = bpy.data.materials.new('tmp')
+    bpy.ops.object.material_slot_add()
     selected_objects = bpy.context.selected_objects
 
     for obj in selected_objects:
@@ -71,14 +71,12 @@ def auto_assign_materials_to_selected():
             continue
 
         bpy.context.view_layer.objects.active = obj
-        bpy.ops.mesh.uv_texture_add()
         bpy.ops.object.editmode_toggle()
         bpy.ops.mesh.select_all(action='SELECT')
         bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
         bpy.ops.object.editmode_toggle()
 
         target_object = obj.name
-        obj.data.materials.append(tmp_mat)
         target_slot = len(obj.data.materials.keys()) - 1
 
         utils.automap(obj.name, target_slot=target_slot,
@@ -215,13 +213,13 @@ def face_is_exterior(sel_obj, selected_face, offset=1):
     face_normal = selected_face.normal.copy()
     face_normal.rotate(sel_obj.rotation_euler)
 
-    for object in bpy.data.objects:
-        if object.type != 'MESH':
+    for intersect_object in bpy.data.objects:
+        if intersect_object.type != 'MESH':
             continue
-        if object.name == sel_obj.name:
+        if intersect_object.name == sel_obj.name:
             continue
 
-        v1 = object.location
+        v1 = intersect_object.location
         v3 = v1 + mathutils.Vector((0, 0, 1))
 
         orig_v1 = mathutils.Vector(face_origin + (offset * face_normal) - v1)
