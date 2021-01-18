@@ -77,7 +77,7 @@ def auto_assign_materials_to_selected():
         bpy.ops.object.editmode_toggle()
 
         target_object = obj.name
-        target_slot = len(obj.data.materials.keys()) - 1
+        target_slot = len(obj.data.materials.keys())
 
         utils.automap(obj.name, target_slot=target_slot,
                     tex_size=1.0)
@@ -137,7 +137,7 @@ def download_to_object(obj, search_keywords):
 
 
     target_object = obj.name
-    target_slot = len(obj.data.materials.keys()) - 1
+    target_slot = len(obj.data.materials.keys())
 
     # asset_search_index = 0
     # asset_data = sr[asset_search_index]
