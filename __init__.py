@@ -4,6 +4,8 @@ import bpy
 import mathutils
 import math
 import time
+import functools
+import queue
 
 bl_info = {
     "name": "BlenderBIM Auto-materials",
@@ -23,6 +25,7 @@ search_terms = {
     'floor - wood': 'wood floor'
 }
 
+execution_queue = queue.LifoQueue()
 
 class BIMAutoMaterials(bpy.types.Operator):
     """Convert BIM Materials to Cycles Materials."""      # Use this as a tooltip for menu items and buttons.
@@ -67,43 +70,97 @@ def auto_assign_materials_to_selected():
             print('Material not mapped')
             continue
 
+        execution_queue.put(functools.partial(search_and_download_to_object, obj, tmp_mat, search_keywords))
+        execute_next_in_queue()
+
+
+def execute_next_in_queue():
+    if execution_queue.empty():
+        print('finished applying materials.')
+    else:
+        bpy.app.timers.register(execution_queue.get())
+
+
+def search_and_download_to_object(obj, tmp_mat, search_keywords):
+    if "bpy" in locals():
+        import importlib
+        utils = importlib.reload(utils)
+        search = importlib.reload(search)
+    else:
+        from blenderkit import utils, search
+    scene = bpy.context.scene
+    ui_props = scene.blenderkitUI
+    props = scene.blenderkit_mat
+
+    if props.is_searching:
+        return 0.5
+
+    if props.search_keywords != search_keywords:
         props.search_keywords = search_keywords
         search.search(category='')
         print(f'searching for {props.search_keywords}')
-        sr = scene.get('search results')
-        print(f'sr: {len(sr)}')
 
-        bpy.context.view_layer.objects.active = obj
+    bpy.app.timers.register(functools.partial(download_to_object, obj, search_keywords, tmp_mat))
+    return None
 
-        target_object = obj.name
-        obj.data.materials.append(tmp_mat)
-        target_slot = len(obj.data.materials.keys()) - 1
+def download_to_object(obj, search_keywords, tmp_mat):
+    if "bpy" in locals():
+        import importlib
+        utils = importlib.reload(utils)
+    else:
+        from blenderkit import utils
+    scene = bpy.context.scene
+    ui_props = scene.blenderkitUI
+    props = scene.blenderkit_mat
 
-        asset_search_index = 0
-        asset_data = sr[asset_search_index]
+    if props.is_searching:
+            return 0.5
 
-        bpy.ops.mesh.uv_texture_add()
-        bpy.ops.object.editmode_toggle()
-        bpy.ops.mesh.select_all(action='SELECT')
-        bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
-        bpy.ops.object.editmode_toggle()
-        utils.automap(target_object, target_slot=target_slot,
-                      tex_size=asset_data.get('texture_size_meters', 1.0))
+    if props.search_keywords != search_keywords:
+        print(f'Cannot apply material. Current search "{props.search_keywords}" was altered by different thread searching for "{search_keywords}". Will retry')
+        execution_queue.put(functools.partial(search_and_download_to_object, obj, tmp_mat))
+        return None
 
-        bpy.ops.scene.blenderkit_download(True,
-                                          asset_type='MATERIAL',
-                                          asset_index=0,
-                                          target_object=target_object,
-                                          material_target_slot=target_slot,
-                                          model_location=obj.location,
-                                          model_rotation=(0, 0, 0))
-        if 'Exterior' in obj.name:
-            for face in obj.data.polygons:
-                if face_is_exterior(obj, face, offset=1):
-                    face.material_index = target_slot
-        else:
-            for face in obj.data.polygons:
+    sr = scene.get('search results')
+
+    bpy.context.view_layer.objects.active = obj
+
+    target_object = obj.name
+    obj.data.materials.append(tmp_mat)
+    target_slot = len(obj.data.materials.keys()) - 1
+
+    asset_search_index = 0
+    asset_data = sr[asset_search_index]
+
+    # bpy.ops.mesh.uv_texture_add()
+    obj.data.uv_layers.new(name="BIM Auto-material")
+    # bpy.ops.object.editmode_toggle()
+    # bpy.ops.mesh.select_all(action='SELECT')
+    # bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
+    # bpy.ops.object.editmode_toggle()
+    # utils.automap(target_object, target_slot=target_slot,
+    #                 tex_size=asset_data.get('texture_size_meters', 1.0))
+
+    bpy.ops.scene.blenderkit_download(True,
+                                        asset_type='MATERIAL',
+                                        asset_index=0,
+                                        target_object=target_object,
+                                        material_target_slot=target_slot,
+                                        model_location=obj.location,
+                                        model_rotation=(0, 0, 0))
+    if 'Exterior' in obj.name:
+        for face in obj.data.polygons:
+            if face_is_exterior(obj, face, offset=1):
                 face.material_index = target_slot
+    else:
+        for face in obj.data.polygons:
+            face.material_index = target_slot
+    print(f'applied {search_keywords} to {target_object}')
+
+    execute_next_in_queue()
+
+    return None
+
 
 
 def auto_assign_empty_material():
@@ -144,7 +201,6 @@ def convert_blenderBIM_materials():
 
 def face_is_exterior(sel_obj, selected_face, offset=1):
     """Determine if the selected face lies inside the building."""
-    sel_obj = bpy.context.active_object
     offset = 1
 
     face_local = selected_face.center.copy()
