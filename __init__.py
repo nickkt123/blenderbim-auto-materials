@@ -70,8 +70,22 @@ def auto_assign_materials_to_selected():
             print('Material not mapped')
             continue
 
-        execution_queue.put(functools.partial(search_and_download_to_object, obj, tmp_mat, search_keywords))
-        execute_next_in_queue()
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.mesh.uv_texture_add()
+        bpy.ops.object.editmode_toggle()
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
+        bpy.ops.object.editmode_toggle()
+
+        target_object = obj.name
+        obj.data.materials.append(tmp_mat)
+        target_slot = len(obj.data.materials.keys()) - 1
+
+        utils.automap(obj.name, target_slot=target_slot,
+                    tex_size=1.0)
+
+        execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
+    execute_next_in_queue()
 
 
 def execute_next_in_queue():
@@ -81,7 +95,7 @@ def execute_next_in_queue():
         bpy.app.timers.register(execution_queue.get())
 
 
-def search_and_download_to_object(obj, tmp_mat, search_keywords):
+def search_and_download_to_object(obj, search_keywords):
     if "bpy" in locals():
         import importlib
         utils = importlib.reload(utils)
@@ -100,10 +114,10 @@ def search_and_download_to_object(obj, tmp_mat, search_keywords):
         search.search(category='')
         print(f'searching for {props.search_keywords}')
 
-    bpy.app.timers.register(functools.partial(download_to_object, obj, search_keywords, tmp_mat))
+    bpy.app.timers.register(functools.partial(download_to_object, obj, search_keywords))
     return None
 
-def download_to_object(obj, search_keywords, tmp_mat):
+def download_to_object(obj, search_keywords):
     if "bpy" in locals():
         import importlib
         utils = importlib.reload(utils)
@@ -118,26 +132,17 @@ def download_to_object(obj, search_keywords, tmp_mat):
 
     if props.search_keywords != search_keywords:
         print(f'Cannot apply material. Current search "{props.search_keywords}" was altered by different thread searching for "{search_keywords}". Will retry')
-        execution_queue.put(functools.partial(search_and_download_to_object, obj, tmp_mat))
+        execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
         return None
 
     sr = scene.get('search results')
 
-    bpy.context.view_layer.objects.active = obj
 
     target_object = obj.name
-    obj.data.materials.append(tmp_mat)
     target_slot = len(obj.data.materials.keys()) - 1
 
-    asset_search_index = 0
-    asset_data = sr[asset_search_index]
-
-    # bpy.ops.mesh.uv_texture_add()
-    obj.data.uv_layers.new(name="BIM Auto-material")
-    # bpy.ops.object.editmode_toggle()
-    # bpy.ops.mesh.select_all(action='SELECT')
-    # bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
-    # bpy.ops.object.editmode_toggle()
+    # asset_search_index = 0
+    # asset_data = sr[asset_search_index]
     # utils.automap(target_object, target_slot=target_slot,
     #                 tex_size=asset_data.get('texture_size_meters', 1.0))
 
