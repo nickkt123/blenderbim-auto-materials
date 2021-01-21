@@ -19,9 +19,9 @@ bl_info = {
 }
 
 search_terms = {
-    'brick': 'brick wall',
-    'foundation': 'concrete',
-    'concrete': 'concrete',
+    'brick': 'modern brick wall',
+    'foundation': 'rough concrete',
+    'concrete': 'rough concrete',
     'floor - wood': 'wood floor'
 }
 
@@ -55,7 +55,6 @@ def auto_assign_materials_to_selected():
     props = scene.blenderkit_mat
     ui_props.asset_type = 'MATERIAL'
 
-    bpy.ops.object.material_slot_add()
     selected_objects = bpy.context.selected_objects
 
     for obj in selected_objects:
@@ -67,10 +66,11 @@ def auto_assign_materials_to_selected():
                 search_keywords = search_term
                 break
         if not search_keywords:
-            print('Material not mapped')
             continue
-
+        
         bpy.context.view_layer.objects.active = obj
+
+        bpy.ops.object.material_slot_add()
         bpy.ops.object.editmode_toggle()
         bpy.ops.mesh.select_all(action='SELECT')
         bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
@@ -83,10 +83,14 @@ def auto_assign_materials_to_selected():
                     tex_size=1.0)
 
         execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
-    execute_next_in_queue()
+    bpy.app.timers.register(execute_next_in_queue)
 
 
-def execute_next_in_queue():
+def execute_next_in_queue(current_material=None):
+    if current_material is not None:
+        if current_material.get('downloaded') < 100:
+            return 0.5
+
     if execution_queue.empty():
         print('finished applying materials.')
     else:
@@ -131,26 +135,32 @@ def download_to_object(obj, search_keywords):
     if props.search_keywords != search_keywords:
         print(f'Cannot apply material. Current search "{props.search_keywords}" was altered by different thread searching for "{search_keywords}". Will retry')
         execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
+        bpy.app.timers.register(execute_next_in_queue)
         return None
 
     sr = scene.get('search results')
-
+    if not sr or len(sr) == 0:
+        execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
+        bpy.app.timers.register(execute_next_in_queue)
+        return None
 
     target_object = obj.name
     target_slot = len(obj.data.materials.keys())
 
-    # asset_search_index = 0
-    # asset_data = sr[asset_search_index]
+    asset_search_index = 0
+    asset_data = sr[asset_search_index]
     # utils.automap(target_object, target_slot=target_slot,
     #                 tex_size=asset_data.get('texture_size_meters', 1.0))
 
     bpy.ops.scene.blenderkit_download(True,
-                                        asset_type='MATERIAL',
-                                        asset_index=0,
-                                        target_object=target_object,
-                                        material_target_slot=target_slot,
-                                        model_location=obj.location,
-                                        model_rotation=(0, 0, 0))
+                                      asset_type='MATERIAL',
+                                      asset_index=asset_search_index,
+                                      target_object=target_object,
+                                      material_target_slot=target_slot,
+                                      model_location=obj.location,
+                                      model_rotation=(0, 0, 0))
+
+
     if 'Exterior' in obj.name:
         for face in obj.data.polygons:
             if face_is_exterior(obj, face, offset=1):
@@ -158,10 +168,8 @@ def download_to_object(obj, search_keywords):
     else:
         for face in obj.data.polygons:
             face.material_index = target_slot
-    print(f'applied {search_keywords} to {target_object}')
-
-    execute_next_in_queue()
-
+    print(f"applied {asset_data.get('name')} to {target_object}")
+    bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
     return None
 
 
@@ -228,7 +236,7 @@ def face_is_exterior(sel_obj, selected_face, offset=1):
         rotated_vec.rotate(eul_z)
         v2 = v1 + rotated_vec
 
-        res = mathutils.geometry.intersect_ray_tri(v1, v2, v3, face_normal, face_origin, False)
+        res = mathutils.geometry.intersect_ray_tri(v1, v2, v3, face_normal, (face_origin + (offset * face_normal)), False)
         if res:
             return False
     return True
