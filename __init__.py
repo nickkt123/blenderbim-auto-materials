@@ -6,6 +6,7 @@ import math
 import time
 import functools
 import queue
+import json
 
 bl_info = {
     "name": "BlenderBIM Auto-materials",
@@ -27,8 +28,20 @@ search_terms = {
 
 execution_queue = queue.LifoQueue()
 
-class BIMAutoMaterials(bpy.types.Operator):
+class BIMConvertMaterials(bpy.types.Operator):
     """Convert BIM Materials to Cycles Materials."""      # Use this as a tooltip for menu items and buttons.
+
+    bl_idname = "bim.bim_convert_materials"        # Unique identifier for buttons and menu items to reference.
+    bl_label = "BlenderBIM convert materials"         # Display name in the interface.
+    bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
+
+    def execute(self, context):        # execute() is called when running the operator.
+        """Run the plugin."""
+        convert_blenderBIM_materials()
+        return {'FINISHED'}            # Lets Blender know the operator finished successfully.
+
+class BIMAutoMaterials(bpy.types.Operator):
+    """Automatically select materials from Blenderkit."""      # Use this as a tooltip for menu items and buttons.
 
     bl_idname = "bim.bim_auto_materials"        # Unique identifier for buttons and menu items to reference.
     bl_label = "BlenderBIM Auto-materials"         # Display name in the interface.
@@ -36,10 +49,25 @@ class BIMAutoMaterials(bpy.types.Operator):
 
     def execute(self, context):        # execute() is called when running the operator.
         """Run the plugin."""
-        convert_blenderBIM_materials()
         auto_assign_empty_material()
         auto_assign_materials_to_selected()
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
+
+class BIMCustomMaterials(bpy.types.Operator):
+    """Map a Blenderkit Material to a BIM Material."""      # Use this as a tooltip for menu items and buttons.
+
+    bl_idname = "bim.bim_custom_materials"        # Unique identifier for buttons and menu items to reference.
+    bl_label = "BlenderBIM Custom material"         # Display name in the interface.
+    bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
+
+    def execute(self, context):        # execute() is called when running the operator.
+        """Run the plugin."""
+        map_material_to_BIM_material()
+        return {'FINISHED'}            # Lets Blender know the operator finished successfully.
+
+
+def map_material_to_BIM_material():
+    print('mapping selected material to bim material. Next time, the auto material will apply the selected material to all objects with this material.')
 
 
 def auto_assign_materials_to_selected():
@@ -56,21 +84,43 @@ def auto_assign_materials_to_selected():
     ui_props.asset_type = 'MATERIAL'
 
     selected_objects = bpy.context.selected_objects
-
+    material_to_object = {}
     for obj in selected_objects:
         if obj.type != 'MESH':
             continue
         search_keywords = None
-        for material_key, search_term in search_terms.items():
-            if material_key in obj.name.lower():
-                search_keywords = search_term
-                break
+
+        bop = obj.BIMObjectProperties
+        if bop.material_type == 'IfcMaterial':
+            bpy.ops.object.material_slot_add()
+            search_keywords = bop.material.name
+            print(f'{obj.name} will get material "{search_keywords}"')
+            if material_to_object.get(search_keywords):
+                material_to_object[search_keywords].append(obj)
+            else:
+                material_to_object[search_keywords] = [obj]
+        if bop.material_type == 'IfcMaterialLayerSet':
+            # for material_layer in bop.material_set.material_layers:
+            bpy.ops.object.material_slot_add()
+            search_keywords = bop.material_set.material_layers[0].material.name
+            print(f'{obj.name} will get material "{search_keywords}".')
+            if material_to_object.get(search_keywords):
+                material_to_object[search_keywords].append(obj)
+            else:
+                material_to_object[search_keywords] = [obj]
+
+            bpy.ops.object.material_slot_add()
+            search_keywords = bop.material_set.material_layers[-1].material.name
+            print(f'{obj.name} will get material "{search_keywords}".')
+            if material_to_object.get(search_keywords):
+                material_to_object[search_keywords].append(obj)
+            else:
+                material_to_object[search_keywords] = [obj]
         if not search_keywords:
             continue
-        
+
         bpy.context.view_layer.objects.active = obj
 
-        bpy.ops.object.material_slot_add()
         bpy.ops.object.editmode_toggle()
         bpy.ops.mesh.select_all(action='SELECT')
         bpy.ops.uv.cube_project(cube_size=2, correct_aspect=False)
@@ -82,14 +132,19 @@ def auto_assign_materials_to_selected():
         utils.automap(obj.name, target_slot=target_slot,
                     tex_size=1.0)
 
-        execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
+    for search_keywords, objects in material_to_object.items():
+        for obj in objects:
+            execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
+
     bpy.app.timers.register(execute_next_in_queue)
 
 
 def execute_next_in_queue(current_material=None):
     if current_material is not None:
-        if current_material.get('downloaded') < 100:
-            return 0.5
+        if current_material.get('downloaded'):
+            if int(current_material.get('downloaded', 0)) < 100:
+                print(current_material.get('downloaded'))
+                return 0.5
 
     if execution_queue.empty():
         print('finished applying materials.')
@@ -140,7 +195,7 @@ def download_to_object(obj, search_keywords):
 
     sr = scene.get('search results')
     if not sr or len(sr) == 0:
-        execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
+        print(f'Blenderkit could not find any material for {search_keywords}.')
         bpy.app.timers.register(execute_next_in_queue)
         return None
 
@@ -171,7 +226,6 @@ def download_to_object(obj, search_keywords):
     print(f"applied {asset_data.get('name')} to {target_object}")
     bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
     return None
-
 
 
 def auto_assign_empty_material():
@@ -244,12 +298,16 @@ def face_is_exterior(sel_obj, selected_face, offset=1):
 
 def register():
     """Register the class in Blender."""
+    bpy.utils.register_class(BIMConvertMaterials)
     bpy.utils.register_class(BIMAutoMaterials)
+    bpy.utils.register_class(BIMCustomMaterials)
 
 
 def unregister():
     """Unregister the class in Blender."""
+    bpy.utils.unregister_class(BIMConvertMaterials)
     bpy.utils.unregister_class(BIMAutoMaterials)
+    bpy.utils.unregister_class(BIMCustomMaterials)
 
 
 # This allows you to run the script directly from Blender's Text editor
