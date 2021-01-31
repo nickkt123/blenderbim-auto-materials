@@ -26,6 +26,8 @@ search_terms = {
     'floor - wood': 'wood floor'
 }
 
+bim_mat_to_blenderkit = {}
+
 execution_queue = queue.LifoQueue()
 
 class BIMConvertMaterials(bpy.types.Operator):
@@ -67,7 +69,17 @@ class BIMCustomMaterials(bpy.types.Operator):
 
 
 def map_material_to_BIM_material():
-    print('mapping selected material to bim material. Next time, the auto material will apply the selected material to all objects with this material.')
+    
+    obj = bpy.context.active_object
+    mat = obj.data.materials[0]
+    
+    asset_data = mat.get('asset_data')
+
+    bim_materials = get_bim_materials(obj)
+
+    main_bim_material = bim_materials[0]
+    bim_mat_to_blenderkit[main_bim_material] = asset_data
+    print(f'Mapped "{mat.name}" to "{main_bim_material}"')
 
 
 def auto_assign_materials_to_selected():
@@ -84,40 +96,22 @@ def auto_assign_materials_to_selected():
     ui_props.asset_type = 'MATERIAL'
 
     selected_objects = bpy.context.selected_objects
-    material_to_object = {}
+    bim_material_to_object = {}
     for obj in selected_objects:
         if obj.type != 'MESH':
             continue
-        search_keywords = None
+        bpy.context.view_layer.objects.active = obj
 
-        bop = obj.BIMObjectProperties
-        if bop.material_type == 'IfcMaterial':
-            bpy.ops.object.material_slot_add()
-            search_keywords = bop.material.name
-            print(f'{obj.name} will get material "{search_keywords}"')
-            if material_to_object.get(search_keywords):
-                material_to_object[search_keywords].append(obj)
-            else:
-                material_to_object[search_keywords] = [obj]
-        if bop.material_type == 'IfcMaterialLayerSet':
-            # for material_layer in bop.material_set.material_layers:
-            bpy.ops.object.material_slot_add()
-            search_keywords = bop.material_set.material_layers[0].material.name
-            print(f'{obj.name} will get material "{search_keywords}".')
-            if material_to_object.get(search_keywords):
-                material_to_object[search_keywords].append(obj)
-            else:
-                material_to_object[search_keywords] = [obj]
-
-            bpy.ops.object.material_slot_add()
-            search_keywords = bop.material_set.material_layers[-1].material.name
-            print(f'{obj.name} will get material "{search_keywords}".')
-            if material_to_object.get(search_keywords):
-                material_to_object[search_keywords].append(obj)
-            else:
-                material_to_object[search_keywords] = [obj]
-        if not search_keywords:
+        bim_materials = get_bim_materials(obj)
+        if not bim_materials:
             continue
+
+        for bim_material in bim_materials:
+            # bpy.ops.object.material_slot_add()
+            if bim_material_to_object.get(bim_material):
+                bim_material_to_object[bim_material].append(obj)
+            else:
+                bim_material_to_object[bim_material] = [obj]
 
         bpy.context.view_layer.objects.active = obj
 
@@ -132,18 +126,29 @@ def auto_assign_materials_to_selected():
         utils.automap(obj.name, target_slot=target_slot,
                     tex_size=1.0)
 
-    for search_keywords, objects in material_to_object.items():
+    for search_keywords, objects in bim_material_to_object.items():
         for obj in objects:
             execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
 
     bpy.app.timers.register(execute_next_in_queue)
 
 
+def get_bim_materials(obj):
+    bop = obj.BIMObjectProperties
+    if bop.material_type == 'IfcMaterial':
+        material_name = bop.material.name
+        return [material_name]
+    if bop.material_type == 'IfcMaterialLayerSet':
+        material_name_front = bop.material_set.material_layers[0].material.name
+        material_name_back = bop.material_set.material_layers[-1].material.name
+
+        return [material_name_front] #, material_name_back]
+    return None
+
 def execute_next_in_queue(current_material=None):
     if current_material is not None:
         if current_material.get('downloaded'):
             if int(current_material.get('downloaded', 0)) < 100:
-                print(current_material.get('downloaded'))
                 return 0.5
 
     if execution_queue.empty():
@@ -152,36 +157,55 @@ def execute_next_in_queue(current_material=None):
         bpy.app.timers.register(execution_queue.get())
 
 
-def search_and_download_to_object(obj, search_keywords):
+def has_material(obj, asset_data):
+    for mat in obj.data.materials.keys():
+        if mat == asset_data.get('name'):
+            return True
+    return False
+
+def search_and_download_to_object(obj, bim_material):
     if "bpy" in locals():
         import importlib
-        utils = importlib.reload(utils)
         search = importlib.reload(search)
     else:
-        from blenderkit import utils, search
-    scene = bpy.context.scene
-    ui_props = scene.blenderkitUI
-    props = scene.blenderkit_mat
+        from blenderkit import search
+    print(f'working on {obj.name}')
+    asset_data = bim_mat_to_blenderkit.get(bim_material)
+    if asset_data is not None:
+        if has_material(obj, asset_data):
+            bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
+            return None
+        from blenderkit import download
+        target_slot = len(obj.data.materials.keys())
+        kwargs = {
+            'target_object': obj.name,
+            'material_target_slot': target_slot,
+            'model_location': obj.location,
+            'model_rotation': (0, 0, 0),
+            'replace': False
+        }
+        obj.data.materials.append(None)
+        for face in obj.data.polygons:
+            face.material_index = target_slot
+        download.start_download(asset_data, **kwargs)
+        bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
+        return None
 
+    scene = bpy.context.scene
+    props = scene.blenderkit_mat
     if props.is_searching:
         return 0.5
 
-    if props.search_keywords != search_keywords:
-        props.search_keywords = search_keywords
+    if props.search_keywords != bim_material:
+        props.search_keywords = bim_material
         search.search(category='')
         print(f'searching for {props.search_keywords}')
 
-    bpy.app.timers.register(functools.partial(download_to_object, obj, search_keywords))
+    bpy.app.timers.register(functools.partial(download_to_object, obj, bim_material))
     return None
 
 def download_to_object(obj, search_keywords):
-    if "bpy" in locals():
-        import importlib
-        utils = importlib.reload(utils)
-    else:
-        from blenderkit import utils
     scene = bpy.context.scene
-    ui_props = scene.blenderkitUI
     props = scene.blenderkit_mat
 
     if props.is_searching:
@@ -204,9 +228,11 @@ def download_to_object(obj, search_keywords):
 
     asset_search_index = 0
     asset_data = sr[asset_search_index]
-    # utils.automap(target_object, target_slot=target_slot,
-    #                 tex_size=asset_data.get('texture_size_meters', 1.0))
+    if has_material(obj, asset_data):
+            bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
+            return None
 
+    obj.data.materials.append(None)
     bpy.ops.scene.blenderkit_download(True,
                                       asset_type='MATERIAL',
                                       asset_index=asset_search_index,
@@ -216,13 +242,14 @@ def download_to_object(obj, search_keywords):
                                       model_rotation=(0, 0, 0))
 
 
-    if 'Exterior' in obj.name:
-        for face in obj.data.polygons:
-            if face_is_exterior(obj, face, offset=1):
-                face.material_index = target_slot
-    else:
-        for face in obj.data.polygons:
-            face.material_index = target_slot
+    # TODO: reimplement exterior check with support for custom materials
+    # if 'Exterior' in obj.name:
+    #     for face in obj.data.polygons:
+    #         if face_is_exterior(obj, face, offset=1):
+    #             face.material_index = target_slot
+    # else:
+    for face in obj.data.polygons:
+        face.material_index = target_slot
     print(f"applied {asset_data.get('name')} to {target_object}")
     bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
     return None
