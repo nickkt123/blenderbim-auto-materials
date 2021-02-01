@@ -7,6 +7,9 @@ import time
 import functools
 import queue
 import json
+import ast
+import idprop
+import os.path
 
 bl_info = {
     "name": "BlenderBIM Auto-materials",
@@ -19,14 +22,7 @@ bl_info = {
     "warning": ""
 }
 
-search_terms = {
-    'brick': 'modern brick wall',
-    'foundation': 'rough concrete',
-    'concrete': 'rough concrete',
-    'floor - wood': 'wood floor'
-}
-
-bim_mat_to_blenderkit = {}
+json_mapping = 'bim_blenderkit_map.json'
 
 execution_queue = queue.LifoQueue()
 
@@ -75,10 +71,27 @@ def map_material_to_BIM_material():
     
     asset_data = mat.get('asset_data')
 
-    bim_materials = get_bim_materials(obj)
+    # the same asset data of the same materials switches between these two types for an unknown reason.
+    if type(asset_data) is str:
+        # sometimes the end bracket is missing
+        if asset_data[-1] != '}':
+            asset_data = asset_data + '}'
+        asset_data = ast.literal_eval(asset_data_string)
+    if type(asset_data) is idprop.types.IDPropertyGroup:
+        asset_data = asset_data.to_dict()
 
+    with open(json_mapping, 'r') as json_file:
+        try:
+            bim_mat_to_blenderkit = json.load(json_file)
+        except:
+            bim_mat_to_blenderkit = {}
+            print('Created new Material Mapping in the plugin folder.')
+
+    bim_materials = get_bim_materials(obj)
     main_bim_material = bim_materials[0]
     bim_mat_to_blenderkit[main_bim_material] = asset_data
+    with open(json_mapping, 'w+') as json_file:
+        json.dump(bim_mat_to_blenderkit, json_file)
     print(f'Mapped "{mat.name}" to "{main_bim_material}"')
 
 
@@ -107,7 +120,6 @@ def auto_assign_materials_to_selected():
             continue
 
         for bim_material in bim_materials:
-            # bpy.ops.object.material_slot_add()
             if bim_material_to_object.get(bim_material):
                 bim_material_to_object[bim_material].append(obj)
             else:
@@ -146,13 +158,18 @@ def get_bim_materials(obj):
     return None
 
 def execute_next_in_queue(current_material=None):
+    scene = bpy.context.scene
+    props = scene.blenderkit_mat
+    if props.is_downloading:
+        return 0.5
+
     if current_material is not None:
         if current_material.get('downloaded'):
             if int(current_material.get('downloaded', 0)) < 100:
                 return 0.5
 
     if execution_queue.empty():
-        print('finished applying materials.')
+        print('Applied all materials.')
     else:
         bpy.app.timers.register(execution_queue.get())
 
@@ -163,14 +180,20 @@ def has_material(obj, asset_data):
             return True
     return False
 
+
+def load_asset_data(bim_material):
+    with open(json_mapping, 'r') as json_file:
+        bim_mat_to_blenderkit = json.load(json_file)
+        return bim_mat_to_blenderkit.get(bim_material)
+
 def search_and_download_to_object(obj, bim_material):
     if "bpy" in locals():
         import importlib
         search = importlib.reload(search)
     else:
         from blenderkit import search
-    print(f'working on {obj.name}')
-    asset_data = bim_mat_to_blenderkit.get(bim_material)
+    print(f'Working on "{obj.name}"...')
+    asset_data = load_asset_data(bim_material)
     if asset_data is not None:
         if has_material(obj, asset_data):
             bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
@@ -188,7 +211,7 @@ def search_and_download_to_object(obj, bim_material):
         for face in obj.data.polygons:
             face.material_index = target_slot
         download.start_download(asset_data, **kwargs)
-        bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
+        bpy.app.timers.register(functools.partial(execute_next_in_queue))
         return None
 
     scene = bpy.context.scene
@@ -199,7 +222,7 @@ def search_and_download_to_object(obj, bim_material):
     if props.search_keywords != bim_material:
         props.search_keywords = bim_material
         search.search(category='')
-        print(f'searching for {props.search_keywords}')
+        print(f'Searching for "{props.search_keywords}"...')
 
     bpy.app.timers.register(functools.partial(download_to_object, obj, bim_material))
     return None
@@ -212,14 +235,14 @@ def download_to_object(obj, search_keywords):
             return 0.5
 
     if props.search_keywords != search_keywords:
-        print(f'Cannot apply material. Current search "{props.search_keywords}" was altered by different thread searching for "{search_keywords}". Will retry')
+        print(f'Current search "{props.search_keywords}" was altered by a different thread searching for "{search_keywords}". Will retry.')
         execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
         bpy.app.timers.register(execute_next_in_queue)
         return None
 
     sr = scene.get('search results')
     if not sr or len(sr) == 0:
-        print(f'Blenderkit could not find any material for {search_keywords}.')
+        print(f'Blenderkit could not find any material for "{search_keywords}".')
         bpy.app.timers.register(execute_next_in_queue)
         return None
 
@@ -250,7 +273,7 @@ def download_to_object(obj, search_keywords):
     # else:
     for face in obj.data.polygons:
         face.material_index = target_slot
-    print(f"applied {asset_data.get('name')} to {target_object}")
+    print(f'Applied "{asset_data.get("name")}" to "{target_object}"')
     bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
     return None
 
