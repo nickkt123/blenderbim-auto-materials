@@ -3,13 +3,12 @@
 import bpy
 import mathutils
 import math
-import time
 import functools
 import queue
 import json
 import ast
 import idprop
-import os.path
+from bpy.types import Panel
 
 bl_info = {
     "name": "BlenderBIM Auto-materials",
@@ -26,11 +25,13 @@ json_mapping = 'bim_blenderkit_map.json'
 
 execution_queue = queue.LifoQueue()
 
+report = 'Ready'
+
 class BIMConvertMaterials(bpy.types.Operator):
-    """Convert BIM Materials to Cycles Materials."""      # Use this as a tooltip for menu items and buttons.
+    """Checks 'use nodes' for all materials and enables transparency."""      # Use this as a tooltip for menu items and buttons.
 
     bl_idname = "bim.bim_convert_materials"        # Unique identifier for buttons and menu items to reference.
-    bl_label = "BlenderBIM convert materials"         # Display name in the interface.
+    bl_label = "Convert all materials to Blender"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
 
     def execute(self, context):        # execute() is called when running the operator.
@@ -38,24 +39,24 @@ class BIMConvertMaterials(bpy.types.Operator):
         convert_blenderBIM_materials()
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
+
 class BIMAutoMaterials(bpy.types.Operator):
-    """Automatically select materials from Blenderkit."""      # Use this as a tooltip for menu items and buttons.
+    """Uses the BIM properties and custom mapping to get materials from blenderKit."""      # Use this as a tooltip for menu items and buttons.
 
     bl_idname = "bim.bim_auto_materials"        # Unique identifier for buttons and menu items to reference.
-    bl_label = "BlenderBIM Auto-materials"         # Display name in the interface.
+    bl_label = "Generate Materials from BIM"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
 
     def execute(self, context):        # execute() is called when running the operator.
         """Run the plugin."""
-        auto_assign_empty_material()
         auto_assign_materials_to_selected()
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
 class BIMCustomMaterials(bpy.types.Operator):
-    """Map a Blenderkit Material to a BIM Material."""      # Use this as a tooltip for menu items and buttons.
+    """Maps the current (top) blenderKit material to the (top) BIM material."""      # Use this as a tooltip for menu items and buttons.
 
     bl_idname = "bim.bim_custom_materials"        # Unique identifier for buttons and menu items to reference.
-    bl_label = "BlenderBIM Custom material"         # Display name in the interface.
+    bl_label = "Map current material to BIM"         # Display name in the interface.
     bl_options = {'REGISTER', 'UNDO'}  # Enable undo for the operator.
 
     def execute(self, context):        # execute() is called when running the operator.
@@ -64,11 +65,61 @@ class BIMCustomMaterials(bpy.types.Operator):
         return {'FINISHED'}            # Lets Blender know the operator finished successfully.
 
 
+class VIEW3D_PT_UI(Panel):
+
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "Auto Materials"
+    bl_label = "Auto Materials"
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row(align=True)
+        col = row.column(align=True)
+        col.operator("bim.bim_convert_materials")
+        col.operator("bim.bim_auto_materials")
+        col.operator("bim.bim_custom_materials")
+
+        layout.label(text="Status: ")
+        global report
+        layout.label(text=report)
+
+
+def report_to_ui(report_text):
+    global report
+    report = report_text
+    print(report)
+
+
 def map_material_to_BIM_material():
     
     obj = bpy.context.active_object
-    mat = obj.data.materials[0]
-    
+
+    index = obj.active_material_index
+    if len(obj.data.materials) <= index:
+        index = 0
+
+    mat = obj.data.materials[index]
+    asset_data = get_asset_data_as_dict(mat)
+
+    try:
+        with open(json_mapping, 'r') as json_file:
+            bim_mat_to_blenderkit = json.load(json_file)
+    except:
+        bim_mat_to_blenderkit = {}
+        report_to_ui('Created new Material Mapping in the plugin folder.')
+
+    bim_materials = get_bim_materials(obj)
+    main_bim_material = bim_materials[0]
+    bim_mat_to_blenderkit[main_bim_material] = asset_data
+    with open(json_mapping, 'w+') as json_file:
+        json.dump(bim_mat_to_blenderkit, json_file)
+
+    report_to_ui(f'Mapped "{mat.name}" to "{main_bim_material}"')
+
+
+def get_asset_data_as_dict(mat):
+    """Returns the blenderKit asset data as a dict"""
     asset_data = mat.get('asset_data')
 
     # the same asset data of the same materials switches between these two types for an unknown reason.
@@ -76,23 +127,11 @@ def map_material_to_BIM_material():
         # sometimes the end bracket is missing
         if asset_data[-1] != '}':
             asset_data = asset_data + '}'
-        asset_data = ast.literal_eval(asset_data_string)
+        return ast.literal_eval(asset_data_string)
     if type(asset_data) is idprop.types.IDPropertyGroup:
-        asset_data = asset_data.to_dict()
-
-    with open(json_mapping, 'r') as json_file:
-        try:
-            bim_mat_to_blenderkit = json.load(json_file)
-        except:
-            bim_mat_to_blenderkit = {}
-            print('Created new Material Mapping in the plugin folder.')
-
-    bim_materials = get_bim_materials(obj)
-    main_bim_material = bim_materials[0]
-    bim_mat_to_blenderkit[main_bim_material] = asset_data
-    with open(json_mapping, 'w+') as json_file:
-        json.dump(bim_mat_to_blenderkit, json_file)
-    print(f'Mapped "{mat.name}" to "{main_bim_material}"')
+        return asset_data.to_dict()
+    
+    return {}
 
 
 def auto_assign_materials_to_selected():
@@ -103,6 +142,9 @@ def auto_assign_materials_to_selected():
         search = importlib.reload(search)
     else:
         from blenderkit import utils, search
+
+    report_to_ui('Generating materials...')
+
     scene = bpy.context.scene
     ui_props = scene.blenderkitUI
     props = scene.blenderkit_mat
@@ -117,6 +159,8 @@ def auto_assign_materials_to_selected():
 
         bim_materials = get_bim_materials(obj)
         if not bim_materials:
+            if len(obj.data.materials) == 0:
+                assign_empty_material(obj)
             continue
 
         for bim_material in bim_materials:
@@ -169,22 +213,29 @@ def execute_next_in_queue(current_material=None):
                 return 0.5
 
     if execution_queue.empty():
-        print('Applied all materials.')
+        report_to_ui('Applied all materials.')
     else:
         bpy.app.timers.register(execution_queue.get())
 
 
-def has_material(obj, asset_data):
-    for mat in obj.data.materials.keys():
-        if mat == asset_data.get('name'):
-            return True
-    return False
+def get_material_slot(obj, asset_data):
+    """Return the material slot of the material."""
+    for index, mat in enumerate(obj.data.materials):
+        if mat is None:
+            continue
+        existing_asset_data = get_asset_data_as_dict(mat)
+        if existing_asset_data.get('name') == asset_data.get('name'):
+            return index
+    return None
 
 
 def load_asset_data(bim_material):
-    with open(json_mapping, 'r') as json_file:
-        bim_mat_to_blenderkit = json.load(json_file)
-        return bim_mat_to_blenderkit.get(bim_material)
+    try:
+        with open(json_mapping, 'r') as json_file:
+            bim_mat_to_blenderkit = json.load(json_file)
+    except:
+        bim_mat_to_blenderkit = {}
+    return bim_mat_to_blenderkit.get(bim_material)
 
 def search_and_download_to_object(obj, bim_material):
     if "bpy" in locals():
@@ -192,13 +243,18 @@ def search_and_download_to_object(obj, bim_material):
         search = importlib.reload(search)
     else:
         from blenderkit import search
-    print(f'Working on "{obj.name}"...')
+
+    report_to_ui(f'Checking "{obj.name}"...')
+
     asset_data = load_asset_data(bim_material)
     if asset_data is not None:
-        if has_material(obj, asset_data):
+        target_slot = get_material_slot(obj, asset_data)
+        if target_slot is not None:
             bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
+            assign_material_to_object(obj, target_slot)
             return None
         from blenderkit import download
+
         target_slot = len(obj.data.materials.keys())
         kwargs = {
             'target_object': obj.name,
@@ -222,7 +278,6 @@ def search_and_download_to_object(obj, bim_material):
     if props.search_keywords != bim_material:
         props.search_keywords = bim_material
         search.search(category='')
-        print(f'Searching for "{props.search_keywords}"...')
 
     bpy.app.timers.register(functools.partial(download_to_object, obj, bim_material))
     return None
@@ -243,18 +298,22 @@ def download_to_object(obj, search_keywords):
     sr = scene.get('search results')
     if not sr or len(sr) == 0:
         print(f'Blenderkit could not find any material for "{search_keywords}".')
+        if len(obj.data.materials) == 0:
+            assign_empty_material(obj)
         bpy.app.timers.register(execute_next_in_queue)
         return None
 
-    target_object = obj.name
-    target_slot = len(obj.data.materials.keys())
 
     asset_search_index = 0
     asset_data = sr[asset_search_index]
-    if has_material(obj, asset_data):
+    target_slot = get_material_slot(obj, asset_data)
+    if target_slot is not None:
             bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
+            assign_material_to_object(obj, target_slot)
             return None
 
+    target_object = obj.name
+    target_slot = len(obj.data.materials.keys())
     obj.data.materials.append(None)
     bpy.ops.scene.blenderkit_download(True,
                                       asset_type='MATERIAL',
@@ -263,36 +322,46 @@ def download_to_object(obj, search_keywords):
                                       material_target_slot=target_slot,
                                       model_location=obj.location,
                                       model_rotation=(0, 0, 0))
+    
+    assign_material_to_object(obj, target_slot)
 
+    report_to_ui(f'Applied "{asset_data.get("name")}" to "{target_object}"')
 
-    # TODO: reimplement exterior check with support for custom materials
-    # if 'Exterior' in obj.name:
-    #     for face in obj.data.polygons:
-    #         if face_is_exterior(obj, face, offset=1):
-    #             face.material_index = target_slot
-    # else:
-    for face in obj.data.polygons:
-        face.material_index = target_slot
-    print(f'Applied "{asset_data.get("name")}" to "{target_object}"')
     bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
     return None
 
 
-def auto_assign_empty_material():
+def assign_material_to_object(obj, target_slot):
+    if 'Exterior' in obj.name:
+        if obj.data.materials[-1] is not None:
+            obj.data.materials.append(None)
+
+        empty_slot = len(obj.data.materials) - 1
+        for face in obj.data.polygons:
+            if face_is_exterior(obj, face, offset=1):
+                face.material_index = target_slot
+            else:
+                face.material_index = empty_slot
+    else:
+        for face in obj.data.polygons:
+            face.material_index = target_slot
+
+
+def assign_empty_material(obj):
     """Assign a bright pink material to unstyled objects."""
     empty_mat = bpy.data.materials.new('Empty Material')
     empty_mat.use_nodes = True
     node = empty_mat.node_tree.nodes.get("Principled BSDF")
     node.inputs['Base Color'].default_value = (1, 0, 1, 1)
 
-    for obj in bpy.context.selected_objects:
-        if obj.type == 'MESH':
-            if not obj.material_slots:
-                obj.data.materials.append(empty_mat)
+    if obj.type == 'MESH':
+        obj.data.materials.append(empty_mat)
 
 
 def convert_blenderBIM_materials():
     """Convert basic blenderBIM materials to cycles materials."""
+    report_to_ui('Converting materials...')
+
     materials = bpy.data.materials
     for material in materials:
         if material.use_nodes:
@@ -313,6 +382,7 @@ def convert_blenderBIM_materials():
             node.inputs['Roughness'].default_value = 0
             node.inputs['Transmission'].default_value = 1 - diffuse_color[3]
 
+    report_to_ui('Converted all materials.')
 
 def face_is_exterior(sel_obj, selected_face, offset=1):
     """Determine if the selected face lies inside the building."""
@@ -352,6 +422,7 @@ def register():
     bpy.utils.register_class(BIMAutoMaterials)
     bpy.utils.register_class(BIMCustomMaterials)
 
+    bpy.utils.register_class(VIEW3D_PT_UI)
 
 def unregister():
     """Unregister the class in Blender."""
@@ -359,6 +430,7 @@ def unregister():
     bpy.utils.unregister_class(BIMAutoMaterials)
     bpy.utils.unregister_class(BIMCustomMaterials)
 
+    bpy.utils.unregister_class(VIEW3D_PT_UI)
 
 # This allows you to run the script directly from Blender's Text editor
 # to test the add-on without having to install it.
