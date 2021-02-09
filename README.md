@@ -8,10 +8,17 @@ The mapping can also be used in other files, e.g. when a new version of the BIM 
 
 ## Installation
 To import the plugin into blender, go to 'Blender Preferences > Add-ons > Install...', and select a zipped version of the plugin folder.
+The plugins BlenderKit and blenderBIM need to be installed as well.
+
+![Screenshot of plugin](assets/settings.png?raw=true "Plugin Overview")
 
 ## Usage
+First, an IFC model has to be imported:
+
+![Ifc import](assets/ifc_import.png?raw=true "Import an IFC model")
+
 The plugin can be found in the sidebar under 'Auto Materials'.
-The plugin has 3 main functions:
+It has 3 main functions:
 
 ![Screenshot of plugin](assets/plugin_overview.png?raw=true "Plugin Overview")
 
