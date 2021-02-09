@@ -285,7 +285,8 @@ def search_and_download_to_object(obj, bim_material):
             'model_rotation': (0, 0, 0),
             'replace': False
         }
-        obj.data.materials.append(None)
+        if obj.data.materials[-1] is not None:
+            assign_empty_material(obj)
         for face in obj.data.polygons:
             face.material_index = target_slot
         download.start_download(asset_data, **kwargs)
