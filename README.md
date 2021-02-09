@@ -13,6 +13,8 @@ To import the plugin into blender, go to 'Blender Preferences > Add-ons > Instal
 The plugin can be found in the sidebar under 'Auto Materials'.
 The plugin has 3 main functions:
 
+![Screenshot of plugin](assets/plugin_overview.png?raw=true "Plugin Overview")
+
 ### Convert all materials to blender
 The imported IFC model can have materials and textures, and transparent glass.
 However the materials do not use the blender nodes, so they cannot be used with the Cycles or Evee rendering engine.
