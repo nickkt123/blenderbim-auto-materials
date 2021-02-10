@@ -238,7 +238,7 @@ def execute_next_in_queue(current_material=None):
         bpy.app.timers.register(execution_queue.get())
 
 
-def get_material_slot(obj, asset_data):
+def get_existing_material_slot(obj, asset_data):
     """If object already has material, return the material slot of the material."""
     for index, mat in enumerate(obj.data.materials):
         if mat is None:
@@ -250,7 +250,7 @@ def get_material_slot(obj, asset_data):
     return None
 
 
-def load_asset_data(bim_material):
+def get_material_from_mapping(bim_material):
     ddir = bpy.path.abspath(asset_path)
     try:
         if not os.path.exists(ddir):
@@ -270,15 +270,18 @@ def search_and_download_to_object(obj, bim_material):
 
     report_to_ui(f'Checking "{obj.name}"...')
 
-    asset_data = load_asset_data(bim_material)
-    if asset_data is not None:
-        target_slot = get_material_slot(obj, asset_data)
+    mapped_material = get_material_from_mapping(bim_material)
+    if mapped_material is not None:
+        # download material directly without having to wait for search
+        target_slot = get_existing_material_slot(obj, mapped_material)
         if target_slot is not None:
-            bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
+            # the material already belongs to the object, it does not have to download
             assign_material_to_object(obj, target_slot)
+            bpy.app.timers.register(functools.partial(execute_next_in_queue, mapped_material))
             return None
         from blenderkit import download
 
+        # the material has to be downloaded
         target_slot = len(obj.data.materials.keys())
         kwargs = {
             'target_object': obj.name,
@@ -289,12 +292,12 @@ def search_and_download_to_object(obj, bim_material):
         }
         if obj.data.materials[-1] is not None:
             assign_empty_material(obj)
-        for face in obj.data.polygons:
-            face.material_index = target_slot
-        download.start_download(asset_data, **kwargs)
+        assign_material_to_object(obj, target_slot)
+        download.start_download(mapped_material, **kwargs)
         bpy.app.timers.register(functools.partial(execute_next_in_queue))
         return None
 
+    # no material was mapped, so we have to search for it
     scene = bpy.context.scene
     props = scene.blenderkit_mat
     if props.is_searching:
@@ -333,16 +336,17 @@ def download_to_object(obj, search_keywords):
     asset_data = sr[asset_search_index]
 
     asset_data_dict = get_asset_data_as_dict(asset_data)
-    map_material_to_BIM_obj(asset_data_dict, obj)
-    target_slot = get_material_slot(obj, asset_data)
+    map_material_to_BIM_obj(asset_data_dict, obj)    # save this material in the mapping so it will not be searched again
+    target_slot = get_existing_material_slot(obj, asset_data)    # check if it was already added to object
     if target_slot is not None:
         assign_material_to_object(obj, target_slot)
         bpy.app.timers.register(functools.partial(execute_next_in_queue, asset_data))
         return None
 
     target_object = obj.name
-    target_slot = len(obj.data.materials.keys())
-    obj.data.materials.append(None)
+    if obj.data.materials[-1] is not None:
+        obj.data.materials.append(None)
+    target_slot = len(obj.data.materials.keys()) - 1
     bpy.ops.scene.blenderkit_download(True,
                                       asset_type='MATERIAL',
                                       asset_index=asset_search_index,
@@ -362,10 +366,11 @@ def download_to_object(obj, search_keywords):
 def assign_material_to_object(obj, target_slot):
     interior_walls_empty_material = bpy.context.scene.bim_auto_mat.interior_walls_empty_material
     if 'Exterior' in obj.name and interior_walls_empty_material:
-        if obj.data.materials[-1] is not None:
-            obj.data.materials.append(None)
+        materials = obj.data.materials
+        if materials[target_slot] is None or materials[-1] is not None:
+            materials.append(None)
 
-        empty_slot = len(obj.data.materials) - 1
+        empty_slot = len(materials) - 1
         for face in obj.data.polygons:
             if face_is_exterior(obj, face, offset=1):
                 face.material_index = target_slot
