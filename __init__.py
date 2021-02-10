@@ -10,7 +10,7 @@ import ast
 import idprop
 import os.path
 from bpy.types import Panel, PropertyGroup, Operator
-from bpy.props import BoolProperty, PointerProperty
+from bpy.props import BoolProperty, PointerProperty, FloatVectorProperty
 
 bl_info = {
     "name": "BlenderBIM Auto-materials",
@@ -86,10 +86,9 @@ class VIEW3D_PT_UI(Panel):
 
         bim_auto_mat = context.scene.bim_auto_mat
         layout.prop(bim_auto_mat, 'interior_walls_empty_material', text='Empty materials for interior faces')
+        layout.prop(bim_auto_mat, 'empty_color', text='Empty Color')
 
-        layout.label(text="Status: ")
-        global report
-        layout.label(text=report)
+        layout.label(text=f"Status: {report}")
 
 
 class AutoMatSettings(PropertyGroup):
@@ -98,6 +97,9 @@ class AutoMatSettings(PropertyGroup):
         description="When a BIM object has the keyword 'exterior', the material is not applied to interior faces.",
         default = True
         )
+    empty_color: FloatVectorProperty(
+        name="Empty Colour", subtype="COLOR", default=(1, 0, 1, 1), min=0.0, max=1.0, size=4
+    )
 
 
 def report_to_ui(report_text):
@@ -376,10 +378,11 @@ def assign_material_to_object(obj, target_slot):
 
 def assign_empty_material(obj):
     """Assign a bright pink material to unstyled objects."""
+    empty_color = bpy.context.scene.bim_auto_mat.empty_color
     empty_mat = bpy.data.materials.new('Empty Material')
     empty_mat.use_nodes = True
     node = empty_mat.node_tree.nodes.get("Principled BSDF")
-    node.inputs['Base Color'].default_value = (1, 0, 1, 1)
+    node.inputs['Base Color'].default_value = empty_color
 
     if obj.type == 'MESH':
         obj.data.materials.append(empty_mat)
