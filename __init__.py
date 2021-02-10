@@ -110,11 +110,22 @@ def report_to_ui(report_text):
 
 def map_selected_material_to_BIM_material():
     obj = bpy.context.active_object
+    if len(obj.data.materials) == 0:
+        report_to_ui('Object has no material')
+        return
+
     index = obj.active_material_index
     if len(obj.data.materials) <= index:
         index = 0
+
     mat = obj.data.materials[index]
+    if mat is None:
+        report_to_ui('Material is empty')
+        return
     raw_asset_data = mat.get('asset_data')
+    if raw_asset_data is None:
+        report_to_ui('Material is not from blenderkit')
+        return
     asset_data = get_asset_data_as_dict(raw_asset_data)
     map_material_to_BIM_obj(asset_data, obj)
 
@@ -125,19 +136,22 @@ def map_material_to_BIM_obj(asset_data, obj):
         if not os.path.exists(ddir):
             os.makedirs(ddir)
             bim_mat_to_blenderkit = {}
-            report_to_ui('Created new Material Mapping in the plugin folder.')
+            report_to_ui('Created new Material Mapping in the plugin folder')
         with open(os.path.join(ddir, json_mapping), 'r') as json_file:
             bim_mat_to_blenderkit = json.load(json_file)
     except:
         bim_mat_to_blenderkit = {}
 
     bim_materials = get_bim_materials(obj)
-    main_bim_material = bim_materials[0]
-    bim_mat_to_blenderkit[main_bim_material] = asset_data
-    with open(os.path.join(ddir, json_mapping), 'w+') as json_file:
-        json.dump(bim_mat_to_blenderkit, json_file)
+    if len(bim_materials) > 0:
+        main_bim_material = bim_materials[0]
+        bim_mat_to_blenderkit[main_bim_material] = asset_data
+        with open(os.path.join(ddir, json_mapping), 'w+') as json_file:
+            json.dump(bim_mat_to_blenderkit, json_file)
 
-    report_to_ui(f'Mapped "{asset_data["name"]}" to "{main_bim_material}"')
+        report_to_ui(f'Mapped "{asset_data["name"]}" to "{main_bim_material}"')
+    else:
+        report_to_ui('Object has no IFC material')
 
 
 def get_asset_data_as_dict(asset_data):
@@ -233,7 +247,7 @@ def execute_next_in_queue(current_material=None):
                 return 0.5
 
     if execution_queue.empty():
-        report_to_ui('Applied all materials.')
+        report_to_ui('Applied all materials')
     else:
         bpy.app.timers.register(execution_queue.get())
 
@@ -290,8 +304,11 @@ def search_and_download_to_object(obj, bim_material):
             'model_rotation': (0, 0, 0),
             'replace': False
         }
-        if obj.data.materials[-1] is not None:
+        if len(obj.data.materials) == 0:
             assign_empty_material(obj)
+        elif obj.data.materials[-1] is not None:
+            assign_empty_material(obj)
+
         assign_material_to_object(obj, target_slot)
         download.start_download(mapped_material, **kwargs)
         bpy.app.timers.register(functools.partial(execute_next_in_queue))
@@ -318,14 +335,14 @@ def download_to_object(obj, search_keywords):
             return 0.5
 
     if props.search_keywords != search_keywords:
-        report_to_ui(f'Current search "{props.search_keywords}" was altered by a different thread searching for "{search_keywords}". Will retry.')
+        report_to_ui(f'Current search "{props.search_keywords}" was altered by a different thread searching for "{search_keywords}". Will retry')
         execution_queue.put(functools.partial(search_and_download_to_object, obj, search_keywords))
         bpy.app.timers.register(execute_next_in_queue)
         return None
 
     sr = scene.get('search results')
     if not sr or len(sr) == 0:
-        report_to_ui(f'Blenderkit could not find any material for "{search_keywords}".')
+        report_to_ui(f'Blenderkit could not find any material for "{search_keywords}"')
         if len(obj.data.materials) == 0:
             assign_empty_material(obj)
         bpy.app.timers.register(execute_next_in_queue)
@@ -417,7 +434,7 @@ def convert_blenderBIM_materials():
             node.inputs['Roughness'].default_value = 0
             node.inputs['Transmission'].default_value = 1 - diffuse_color[3]
 
-    report_to_ui('Converted all materials.')
+    report_to_ui('Converted all materials')
 
 def face_is_exterior(sel_obj, selected_face, offset=1):
     """Determine if the selected face lies inside the building."""
