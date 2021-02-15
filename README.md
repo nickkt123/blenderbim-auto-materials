@@ -37,9 +37,9 @@ Maps the selected BlenderKit material to the IFC material of the object.
 The next time the 'Generate Materials from BIM' function is used on any object, it first checks for a custom mapping.
 The mapping is saved in a json in the project folder under ```bim_auto_mat_data/bim_blenderkit_map.json```.
 
-#### Empty Materials for Interior Faces
+#### Empty Material for Interior Faces
 When this is checked, any objects that have the keyword 'exterior' in their name will not have a material on interior faces.
-This is useful for walls which should only have the wall material on the outside.
+This is useful for walls which should only have the wall material on the outside. *Note: This function does not work correctly on all models and may determine that some exterior faces are interior*
 
 #### Missing Material Color
 The color that is applied to objects with no IFC material. The bright pink color is useful for quickly spotting such objects in the scene, however it can be changed to a different color that is less offensive.
