@@ -3,8 +3,8 @@
 ## Overview
 BlenerBIM is a great tool that allows us to import IFC models to Blender. It especially also imports the IFC materials of the model. However, there is a big difference between IFC materials and Blender materials: They describe the specifications of a construction material, but are of course not useful for rendering the architecture model in Blender. This plugin uses IFC materials to search for similar materials on BlenderKit so that a model can be quickly prepared for rendering.
 
+### Walkthrough Video
 [![Walkthrough](http://img.youtube.com/vi/M4i9tVeH0ZE/0.jpg)](https://youtu.be/M4i9tVeH0ZE "BlenderBIM Auto Materials")
-
 
 ## Installation
 To install the plugin in blender, go to 'Blender Preferences > Add-ons > Install...', and select a zipped version of the plugin folder.
@@ -12,7 +12,7 @@ The plugins BlenderKit and BlenderBIM need to be installed as well.
 
 ![Screenshot of plugin](assets/settings.png?raw=true "Plugin Overview")
 
-## Quick Start
+## Usage
 
 First, an IFC model has to be imported via File > Import > Industry Foundation Classes:
 
