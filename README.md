@@ -1,7 +1,7 @@
 # BlenderBIM Auto Materials
 
 ## Overview
-BlenerBIM is a great tool that allows us to import IFC models to Blender. It especially also imports the IFC materials of the model. However, there is a big difference between IFC materials and Blender materials: They describe the specifications of a construction material, but are of course not useful for rendering the architecture model in Blender. This plugin uses IFC materials to search for similar materials on BlenderKit so that a model can be quickly prepared for rendering.
+BlenderBIM is a great tool that allows us to import IFC models to Blender. It especially also imports the IFC materials of the model. However, there is a big difference between IFC materials and Blender materials: They describe the specifications of a construction material, but are of course not useful for rendering the architecture model in Blender. This plugin uses IFC materials to search for similar materials on BlenderKit so that a model can be quickly prepared for rendering.
 
 ### Walkthrough Video
 [![Walkthrough](http://img.youtube.com/vi/M4i9tVeH0ZE/0.jpg)](https://youtu.be/M4i9tVeH0ZE "BlenderBIM Auto Materials")
